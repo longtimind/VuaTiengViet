@@ -1,3 +1,4 @@
+import asyncio
 import os
 import tempfile
 import threading
@@ -14,6 +15,7 @@ app.add_middleware(
 )
 
 _lock = threading.Lock()
+_infer_lock = threading.Lock()
 _model = None
 _error: str | None = None
 
@@ -29,8 +31,14 @@ def get_model():
             import torch
             from chunkformer import ChunkFormerModel
 
+            threads = max(1, int(os.environ.get("ASR_THREADS", "4")))
+            torch.set_num_threads(threads)
+            torch.set_num_interop_threads(1)
+            os.environ.setdefault("OMP_NUM_THREADS", str(threads))
+            os.environ.setdefault("MKL_NUM_THREADS", str(threads))
+
             name = os.environ.get("ASR_MODEL", "khanhld/chunkformer-ctc-large-vie")
-            print(f"loading {name}")
+            print(f"loading {name} threads={threads}")
             model = ChunkFormerModel.from_pretrained(name)
             model = model.to(torch.device("cpu"))
             model.eval()
@@ -39,6 +47,14 @@ def get_model():
         except Exception as exc:
             _error = str(exc)
             raise
+
+
+def decode_file(path: str) -> str:
+    model = get_model()
+    with _infer_lock:
+        pieces = model.batch_decode([path])
+    heard = pieces[0] if pieces else ""
+    return drop_looped_hallucination(str(heard).strip())
 
 
 @app.get("/api/health")
@@ -77,10 +93,7 @@ async def transcribe(file: UploadFile = File(...)):
         tmp.write(data)
         path = tmp.name
     try:
-        model = get_model()
-        pieces = model.batch_decode([path])
-        heard = pieces[0] if pieces else ""
-        text = drop_looped_hallucination(str(heard).strip())
+        text = await asyncio.to_thread(decode_file, path)
         print(f"heard: {text}")
         return {"text": text}
     except HTTPException:
