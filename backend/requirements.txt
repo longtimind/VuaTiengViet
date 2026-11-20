@@ -2,3 +2,13 @@ fastapi==0.165.0
 uvicorn==0.54.0
 python-multipart==0.0.34
 faster-whisper==1.2.1
+numpy>=1.26
+# optional, only if ASR_ENGINE=chunkformer:
+# torch
+# torchaudio
+# chunkformer==1.2.2
+# transformers>=4.20
+# pydub
+# pandas
+# jiwer
+# sentencepiece
